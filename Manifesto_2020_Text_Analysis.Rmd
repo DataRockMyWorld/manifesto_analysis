@@ -1,0 +1,269 @@
+---
+title: "**2020 Manifesto Text Analysis**"
+author: "Jewel Bansah"
+date: "2/8/2022"
+output: 
+  html_document: 
+    theme: spacelab
+---
+
+
+Hi everyone !
+
+In this session, i perform text analysis on the 2020 manifesto's of the two dominant political parties in my country, Ghana.
+
+These are the
+
+* New Patriotic Party - NPP
+* National Democratic Congress - NDC
+
+![Image 1](https://newsghana.com.gh/wp-content/uploads/2017/06/NPP-NDC.jpg)
+
+By using the tidytext package(Silge and Robinson 2016) and other tidy tools in R, i attempt to apply tidy principles to text mining.
+
+The goal is to practice my NLP skills and at the same time discover interesting patterns & insights these documents may hold.
+
+Lets go!!!
+
+
+## **SETTING UP ENVIRONMENT**
+
+```{r loading packages, warning=FALSE}
+library(tidyverse)
+library(tidytext)
+library(tm)
+library(quanteda)
+library(wordcloud)
+library(ggrepel)
+```
+
+## **IMPORTING DOCUMENTS & PRE-PROCESSING**
+
+```{r Import, warning=FALSE}
+## NPP
+
+npp_2020 <- read_lines("NPP 2020 Final.txt") # Import NPP manifesto
+npp_tidy <- tibble(text = npp_2020) # Converting to dataframe
+
+# NDC
+ndc_2020 <- read_lines("NDC 2020 Final.txt") # Import NDC Manifesto
+ndc_tidy <- tibble(text = ndc_2020) # Converting to a data frame
+
+#Tokenization
+
+ndc_token <- ndc_tidy %>% unnest_tokens(word,text) %>% 
+  anti_join(stop_words) %>% filter(!str_detect(word,"[0-9]+"))
+
+npp_token <-  npp_tidy %>% unnest_tokens(word,text) %>% 
+  anti_join(stop_words) %>% filter(!str_detect(word,"[0-9]+"))
+```
+
+
+## **COMBINING BOTH DOCUMENTS**
+Joining the two tidy manifestos
+
+```{r echo=TRUE, warning=FALSE}
+manifesto_2020 <- bind_rows(mutate(ndc_token, party = "NDC"),
+                       mutate(npp_token, party = "NPP")) %>% mutate(linenumber = row_number()) %>% 
+  relocate(linenumber, .before = word)
+
+manifesto_2020
+
+# Most popular words used in the manifesto
+
+manifesto_2020 %>% count(word, sort = TRUE)
+```
+
+## **IDENTIFYING WORDS UNIQUE TO EACH MANIFESTO**
+By using term frequency_Inverse document frequency (tf-idf) \n
+and wordcloud
+
+```{r}
+# Run a tf-idf to see the words unique to each party
+
+manifesto_idf <- manifesto_2020 %>% count(word,party) %>% 
+  bind_tf_idf(word,party,n) %>% arrange(desc(tf_idf))
+
+# Plot of top 15 words unique to each party
+
+manifesto_idf %>% mutate(word = as.factor(word)) %>% 
+  group_by(party) %>% 
+  slice_max(tf_idf, n = 10) %>% 
+  ungroup() %>% 
+  mutate(word = reorder(word, tf_idf)) %>% 
+  ggplot(aes(tf_idf,word, fill = party)) +
+  geom_col()+
+  scale_fill_manual(values = c("#E063FF", "#63D8FF")) +
+  facet_wrap(~party, scales = "free") + 
+  theme (plot.caption = element_text(size = 13,
+    face = "bold.italic", colour = "aliceblue"),
+    panel.grid.major = element_line(linetype = "blank"),
+    panel.grid.minor = element_line(linetype = "blank"),
+    axis.text = element_text(size = 13, face = "bold",
+        colour = NA), axis.text.y = element_text(colour = "antiquewhite"),
+    legend.title = element_text(face = "bold"),
+    panel.background = element_rect(fill = "gray0"),
+    plot.background = element_rect(fill = "gray0",
+        colour = NA), legend.position = "none") +
+  labs(caption = "Data from citionline | Graph by: Jewel Bansah") + theme(plot.subtitle = element_text(family = "mono",
+    size = 12, colour = "darkseagreen1"),
+    axis.text = element_text(hjust = 0.4,
+        vjust = 0.4)) +labs(subtitle = "The NDC had more words centered around the people as their Manifesto title suggested") + theme(plot.caption = element_text(size = 11),
+    panel.grid.major = element_line(colour = NA),
+    panel.grid.minor = element_line(colour = NA),
+    axis.text = element_text(size = 11)) +labs(subtitle = "The NDC had more words centered around the people,/n the NPP focused on the economy") + theme(axis.text = element_text(size = 9),
+    axis.text.y = element_text(colour = "aliceblue")) + theme(plot.subtitle = element_text(size = 11,
+    face = "italic", colour = "aliceblue",
+    hjust = 0.5), plot.title = element_text(face = "bold",
+    colour = "aliceblue", hjust = 0.5)) +labs(title = "For the People vrs Leadership",
+    subtitle = "Both Parties stuck to their core campaign message")
+  
+
+# Wordcloud 
+
+# NDC 
+manifesto_2020 %>% filter(party == "NDC") %>% 
+  count(word) %>% 
+  with(wordcloud(word,n,max.words = 100,scale = c(3.6,.25),colors = brewer.pal(8, "Set1"),
+                 random.order = FALSE))
+
+# NPP
+
+manifesto_2020 %>% filter(party == "NPP") %>% 
+  count(word) %>% 
+  with(wordcloud(word,n,max.words = 100,scale = c(3.6,.25),colors = brewer.pal(8, "Dark2"),
+                 random.order = FALSE))
+
+
+```
+
+
+## **SENTIMENT ANALYSIS** 
+Gauging the mood (negative & positive) of both manifestos
+
+```{r echo=FALSE, warning=FALSE}
+# MOST COMMON POSITIVE AND NEGATIVE WORDS FOR EACH PARTY ----
+manifesto_2020 %>% inner_join(get_sentiments("bing")) %>% 
+  count(party,word,sentiment,sort = TRUE) %>% 
+  mutate(word = as.factor(word)) %>%
+  group_by(sentiment) %>%
+  slice_max(n, n = 10) %>%
+  ungroup() %>%
+  mutate(n = ifelse(sentiment == "negative",-n,n)) %>% 
+  ggplot(aes(n, reorder(word,n), fill = sentiment)) + 
+  geom_col(show.legend = FALSE)+ 
+  scale_fill_manual(values = c("#29CAE3", "#E319C8")) +
+  facet_wrap(~party,scales = "free") +
+  labs(x ="Contribution to sentiment", y = NULL) +
+  theme_bw() + theme(plot.subtitle = element_text(family = "serif",
+    size = 13, colour = "black", hjust = 0.5),
+    plot.caption = element_text(face = "bold",
+        colour = "black"), axis.line = element_line(size = 0),
+    axis.ticks = element_line(size = 0, linetype = "blank"),
+    panel.grid.major = element_line(linetype = "blank"),
+    panel.grid.minor = element_line(colour = "gray97"),
+    axis.title = element_text(family = "serif",
+        face = "bold"), axis.text = element_text(size = 10,
+        face = "italic", colour = NA), axis.text.y = element_text(colour = "gray6"),
+    plot.title = element_text(size = 15,
+        face = "bold", hjust = 0.5), panel.background = element_rect(fill = "#eaeaf2"),
+    legend.position = "none") +labs(title = "Words Contributing to Sentiments",
+    x = NULL, subtitle = "The NDC Shared more negative sentiments",
+    caption = "Data from Citionline.com | Graph by blake Analytics") + theme(panel.grid.minor = element_line(linetype = "blank"),
+    panel.background = element_rect(fill = "black"))
+  
+# CHANGE OF SENTIMENT WITHIN THE MANIFESTO ----
+  
+manifesto_2020 %>% inner_join(get_sentiments("bing")) %>% 
+  count(party,word,index =linenumber %/% 70,sentiment,) %>%
+  pivot_wider(names_from = sentiment, values_from = n, values_fill = 0) %>% # pivot wider to get net sentiment
+  mutate(sentiment = positive-negative) %>% # computing net sentiment
+  ggplot(aes(index,sentiment,fill = party)) +
+  geom_col() +
+  scale_fill_manual(values = c("#E063FF", "#63D8FF")) +
+  facet_wrap(~party, scales = "free_x", ncol = 1)+
+  theme_bw() + theme(plot.subtitle = element_text(face = "italic",
+    colour = "black", hjust = 0.5), plot.caption = element_text(size = 10,
+    face = "bold", colour = "black"), axis.ticks = element_line(linetype = "blank"),
+    panel.grid.major = element_line(linetype = "blank"),
+    panel.grid.minor = element_line(linetype = "blank"),
+    axis.text = element_text(colour = NA),
+    axis.text.y = element_text(colour = "black"),
+    plot.title = element_text(size = 15,
+        face = "bold", hjust = 0.5), panel.background = element_rect(fill = "black",
+        size = 0.1), plot.background = element_rect(fill = "antiquewhite1",
+        colour = NA, size = 0.7), legend.position = "none") +labs(title = "Sentiment Variation across the Manifesto",
+    x = "Manifesto Pages", subtitle = "The NDC doesnt see much to be happy about",
+    caption = "Data from Citionline.com | Graph by blake Analytics")
+  
+  
+  
+```
+
+## **SIMILAR WORDS USED IN BOTH MANIFESTOS**
+
+```{r warning=FALSE}
+# Relationship between Manifesto's
+
+manifesto_2020 %>%
+  count(party,word) %>%
+  group_by(party) %>% 
+  mutate(proportion = n/sum(n)) %>% 
+  ungroup() %>% 
+  select(-n) %>% 
+  pivot_wider(names_from = party,values_from = proportion, values_fill = 0) %>% 
+  ggplot(aes(NDC,NPP)) +
+  geom_abline(color = "black", lty = 2) +
+  geom_jitter(alpha = 0.1, size = 0.5, width = 0.3, height = 0.3) +
+  geom_text(aes(label = word), check_overlap = TRUE, vjust = 1.0) +
+  scale_x_log10(labels =scales::percent) +
+  scale_y_log10(labels = scales::percent) +
+  scale_color_gradient(limits = c(0, 0.001), 
+                       low = "darkslategray4", high = "gray75") +
+  theme(legend.position="none")+
+  labs(title = " ",subtitle = "Words close to the line were used in similar frequency by both parties",
+       x = "NDC words", y = "NPP words")+
+  theme_bw() + theme(plot.subtitle = element_text(size = 11,
+    face = "italic", colour = "white"), plot.caption = element_text(size = 10,
+    face = "bold", colour = "white"), axis.ticks = element_line(linetype = "blank"),
+    panel.grid.major = element_line(linetype = "blank"),
+    panel.grid.minor = element_line(size = 1.1,
+        linetype = "blank"), axis.title = element_text(face = "bold",
+        colour = "white"), axis.text.x = element_text(colour = "white"),
+    axis.text.y = element_text(colour = "white"),
+    plot.title = element_text(size = 15,
+        face = "bold", colour = "white"),
+    panel.background = element_rect(fill = "cyan"),
+    plot.background = element_rect(fill = "black")) +labs(title = " Common Words Used by Both Parties",
+    caption = "Data from Citionline.com | Graph by blake Analytics")
+
+```
+
+
+## **SUMMARY** 
+
+
+Coming into the 2020 elections in Ghana, the ruling NPP was hoping to win a second term while the opposition party, the NDC
+was looking to topple them democratically.
+
+Looking at the most popular words in both monifestos, the NDC appears to target the people (workers, gender, informal, care) while the NPP
+looked to tout their accomplishments (stewardship, reduction, digitizing, depositors, delivered, promises). 
+This is expected considering their respective positions in the election.
+
+Sentiment analysis shows the NDC has more negative sentiments  throughout their manifesto compared to the NPP.
+Again this is expected because the NDC is in opposition and would more likely focus on pointing out the short comings of the current government.
+The NPP on the other hand will look to focus more on their achievement and promises of a better or more positive future.
+
+Going into the elections, the most poular subjects were jobs, Covid and the financial sector cleanup amongst others.
+It is therefore not surprising to see these and other related words by used by both parties at similar frequencies.
+
+Below is the link to both Manifestos
+
+[NPP - Leadership In Service](https://drive.google.com/file/d/1PDB3eraA_nYjSVUbb5tiJp7DGYmrQm3O/view)
+
+[NDC - The People's Manifesto](https://drive.google.com/file/d/1TvacMm1sGVAIoaiYDmM-TiMPu2J14KH7/view)
+
+
+`SessionInfo()`
+
+
